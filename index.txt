@@ -1,0 +1,494 @@
+```react
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from 'firebase/firestore';
+import { Calendar, MapPin, CheckCircle, Users, LayoutDashboard, ClipboardList, TrendingUp, ChevronDown, Loader2, Info, CreditCard, Copy, Landmark, MessageCircle, Check, Lock, X } from 'lucide-react';
+
+// Firebase Config
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'rhythmic-gymnastics-2026';
+
+// --- 常數與密碼設定 ---
+const ADMIN_PASSWORD = "2026";
+const EARLY_BIRD_DEADLINE = new Date('2026-07-01T00:00:00');
+const BANK_INFO = {
+  bankName: "812 台新銀行",
+  branchName: "", 
+  accountNumber: "20441000332556",
+  accountHolder: "詹舒憶"
+};
+
+// 修正後上課週數：移除 8/3 - 8/7，僅保留後續兩週。
+const CAMP_WEEKS = [
+  { id: 'week2', label: '第一週 (8/10 - 8/14)' },
+  { id: 'week3', label: '第二週 (8/17 - 8/21)' },
+];
+
+// 計價方案
+const PRICING = {
+  full: { 1: 7000, 2: 12000 },
+  half: { 1: 3500, 2: 6000 }
+};
+
+export default function App() {
+  const [view, setView] = useState('form'); 
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registrations, setRegistrations] = useState([]);
+  
+  // 管理員驗證狀態
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [passInput, setPassInput] = useState('');
+
+  const [formData, setFormData] = useState({
+    parentName: '',
+    phone: '',
+    email: '',
+    participants: [{ name: '', age: '' }],
+    campType: 'full', 
+    weeks: [], 
+    notes: '',
+    bankLastFive: '' 
+  });
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) { console.error("Auth error:", error); }
+    };
+    initAuth();
+    
+    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !isAdminAuthenticated || view !== 'admin') return;
+
+    const q = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+    const unsubscribeData = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setRegistrations(data.sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0)));
+    }, (error) => {
+      console.error("Firestore error:", error);
+    });
+
+    return () => unsubscribeData();
+  }, [user, view, isAdminAuthenticated]);
+
+  const isEarlyBirdActive = new Date() < EARLY_BIRD_DEADLINE;
+
+  // 計算邏輯：修正為僅有「三人同行享 9 折」
+  const calculateTotalPrice = (count, weekCount, campType) => {
+    if (weekCount === 0) return 0;
+    const base = (PRICING[campType][weekCount] || 0) * count;
+    let discount = 1;
+    if (count >= 3) {
+      discount = 0.9;
+    }
+    return Math.round(base * discount);
+  };
+
+  const totalPrice = calculateTotalPrice(formData.participants.length, formData.weeks.length, formData.campType);
+  const avgPrice = formData.participants.length > 0 ? Math.round(totalPrice / formData.participants.length) : 0;
+
+  const toggleWeek = (weekId) => {
+    setFormData(prev => {
+      const newWeeks = prev.weeks.includes(weekId)
+        ? prev.weeks.filter(id => id !== weekId)
+        : [...prev.weeks, weekId];
+      return { ...prev, weeks: newWeeks };
+    });
+  };
+
+  const handleAdminAccess = () => {
+    if (isAdminAuthenticated) {
+      setView('admin');
+    } else {
+      setShowLoginModal(true);
+    }
+  };
+
+  const verifyPassword = (e) => {
+    e.preventDefault();
+    if (passInput === ADMIN_PASSWORD) {
+      setIsAdminAuthenticated(true);
+      setShowLoginModal(false);
+      setView('admin');
+      setPassInput('');
+    } else {
+      alert("密碼錯誤，請洽系統管理員");
+      setPassInput('');
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user || isSubmitting) return;
+    if (formData.weeks.length === 0) {
+      alert("請至少選擇一個上課週數");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const registrationsRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+      await addDoc(registrationsRef, {
+        ...formData,
+        totalPrice: totalPrice,
+        avgPrice: avgPrice,
+        isEarlyBird: isEarlyBirdActive,
+        submittedAt: serverTimestamp()
+      });
+      setSubmitted(true);
+      window.scrollTo(0, 0);
+    } catch (error) { 
+      console.error("Submit error:", error);
+      alert("送出失敗，請檢查網路連線。"); 
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  };
+
+  const getLineLink = () => {
+    const selectedWeeksStr = CAMP_WEEKS
+      .filter(w => formData.weeks.includes(w.id))
+      .map(w => w.label.split(' ')[0])
+      .join('、');
+    const participantsStr = formData.participants
+      .map((p, idx) => `${idx + 1}. ${p.name} (${p.age}歲)`)
+      .join('\n');
+    const discountLabel = formData.participants.length >= 3 ? " (三人同行享9折)" : "";
+    const messageText = `您好！我已完成「2026 夏令營」報名預約 ✨\n\n` +
+      `👤 家長姓名：${formData.parentName}\n` +
+      `📞 聯絡電話：${formData.phone}\n` +
+      `📅 報名週數：${selectedWeeksStr}\n` +
+      `👧 報名學員：\n${participantsStr}\n` +
+      `💰 應匯總額：NT$ ${totalPrice.toLocaleString()}${discountLabel}\n` +
+      `🔢 匯款後五碼：${formData.bankLastFive || '（尚未填寫，後續提供）'}\n\n` +
+      `請協助確認報名狀態，謝謝！`;
+    return `https://line.me/R/oaMessage/@904sjunh/?${encodeURIComponent(messageText)}`;
+  };
+
+  if (loading) return <div className="flex items-center justify-center min-h-screen text-[#95819e] font-bold tracking-widest bg-[#f6f5f8]">LOADING...</div>;
+
+  return (
+    <div className="min-h-screen bg-[#f6f5f8]">
+      {/* 導覽列 */}
+      <nav className="bg-white/80 backdrop-blur-md border-b px-4 py-3 flex justify-center gap-4 sticky top-0 z-50 shadow-sm">
+        <button onClick={() => setView('form')} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold transition-all duration-300 ${view === 'form' ? 'bg-[#95819e] text-white shadow-lg shadow-[#95819e]/20' : 'text-[#a59eb0] hover:bg-[#f1edf3]'}`}>
+          <ClipboardList className="w-4 h-4" /> 報名表單
+        </button>
+        <button onClick={handleAdminAccess} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold transition-all duration-300 ${view === 'admin' ? 'bg-[#7e9994] text-white shadow-lg shadow-[#7e9994]/20' : 'text-[#a59eb0] hover:bg-[#f1edf3]'}`}>
+          {isAdminAuthenticated ? <LayoutDashboard className="w-4 h-4" /> : <Lock className="w-4 h-4" />} 管理後台
+        </button>
+      </nav>
+
+      <div className="max-w-2xl mx-auto py-8 px-4">
+        {view === 'form' ? (
+          submitted ? (
+            <div className="space-y-6 animate-in fade-in zoom-in duration-500">
+              <div className="bg-white p-10 rounded-[2.5rem] shadow-sm text-center border border-[#eedee5]">
+                <div className="w-20 h-20 bg-[#f1edf3] text-[#95819e] rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <h2 className="text-2xl font-bold text-[#4c4452]">報名預約成功</h2>
+                <p className="text-[#a59eb0] mt-2">請完成匯款並點擊下方按鈕告知對帳</p>
+                <div className="mt-6 p-4 bg-[#faf7fc] rounded-2xl border border-[#eedee5]">
+                    <p className="text-sm font-bold text-[#4c4452]">應匯款總金額</p>
+                    <p className="text-3xl font-black text-[#95819e] mt-1">NT$ {totalPrice.toLocaleString()}</p>
+                </div>
+              </div>
+              <a href={getLineLink()} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full py-6 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-[2rem] font-bold shadow-lg shadow-[#06C755]/20 transition-all active:scale-[0.98]">
+                <MessageCircle className="w-6 h-6" /> 送出資料至官方 LINE 對帳
+              </a>
+              <button onClick={() => { setSubmitted(false); setFormData({ parentName: '', phone: '', email: '', participants: [{ name: '', age: '' }], campType: 'full', weeks: [], notes: '', bankLastFive: '' }); }} className="w-full py-5 bg-white text-[#a59eb0] rounded-[2rem] font-bold shadow-sm border border-[#eedee5] hover:bg-[#faf7fc] transition-all">
+                返回報名首頁
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-8">
+              <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-[#eedee5]">
+                <div className="bg-[#95819e] p-10 text-white">
+                  <h1 className="text-3xl font-bold mb-3 tracking-tight">2026 韻律體操夏令營</h1>
+                  <div className="flex items-center gap-5 text-sm opacity-90">
+                    <span className="flex items-center gap-2"><Calendar className="w-4 h-4" /> 8月盛大開課</span>
+                    <span className="flex items-center gap-2"><MapPin className="w-4 h-4" /> 竹東鎮星都匯C區</span>
+                  </div>
+                </div>
+                <div className="p-8 space-y-10">
+                  <section>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-1.5 h-6 bg-[#7e9994] rounded-full"></div>
+                      <h3 className="font-bold text-[#4c4452] text-lg">選擇上課週數</h3>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {CAMP_WEEKS.map((week) => (
+                        <div key={week.id} onClick={() => toggleWeek(week.id)} className={`flex items-center justify-between p-5 rounded-2xl border-2 transition-all cursor-pointer ${formData.weeks.includes(week.id) ? 'border-[#95819e] bg-[#faf7fc]' : 'border-[#eedee5] bg-[#faf8fb] hover:border-[#eedee5]'}`}>
+                          <div className="flex items-center gap-4">
+                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${formData.weeks.includes(week.id) ? 'bg-[#95819e] border-[#95819e]' : 'border-[#d1d1d1] bg-white'}`}>
+                              {formData.weeks.includes(week.id) && <Check className="w-4 h-4 text-white" />}
+                            </div>
+                            <span className={`font-bold transition-all ${formData.weeks.includes(week.id) ? 'text-[#4c4452]' : 'text-[#a59eb0]'}`}>
+                              {week.label}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-1.5 h-6 bg-[#7e9994] rounded-full"></div>
+                      <h3 className="font-bold text-[#4c4452] text-lg">聯絡人資訊</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-[#a59eb0] ml-2 uppercase">家長姓名</label>
+                        <input required type="text" className="w-full px-5 py-4 bg-[#faf8fb] border border-[#eedee5] rounded-2xl outline-none focus:border-[#95819e] transition-all" value={formData.parentName} onChange={e => setFormData({...formData, parentName: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-[#a59eb0] ml-2 uppercase">聯絡電話</label>
+                        <input required type="tel" className="w-full px-5 py-4 bg-[#faf8fb] border border-[#eedee5] rounded-2xl outline-none focus:border-[#95819e] transition-all" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                      </div>
+                    </div>
+                  </section>
+                  <section>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-6 bg-[#7e9994] rounded-full"></div>
+                        <h3 className="font-bold text-[#4c4452] text-lg">報名學員</h3>
+                      </div>
+                      <div className="flex bg-[#f1edf3] p-1.5 rounded-2xl">
+                        {[1, 2, 3].map(n => (
+                          <button key={n} type="button" onClick={() => {
+                            let newParts = [...formData.participants];
+                            if (n > newParts.length) while(newParts.length < n) newParts.push({name: '', age: ''});
+                            else newParts = newParts.slice(0, n);
+                            setFormData({...formData, participants: newParts});
+                          }} className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${formData.participants.length === n ? 'bg-white text-[#95819e] shadow-sm' : 'text-[#a59eb0]'}`}>{n} 位</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      {formData.participants.map((p, i) => (
+                        <div key={i} className="grid grid-cols-3 gap-4 p-5 bg-[#faf8fb] rounded-[1.5rem] border border-[#eedee5]">
+                          <div className="col-span-2">
+                            <input required placeholder={`學員 ${i+1} 姓名`} className="w-full px-4 py-3 text-sm bg-white border border-[#eedee5] rounded-xl outline-none focus:border-[#95819e] transition-all" value={p.name} onChange={e => {
+                              const n = [...formData.participants]; n[i].name = e.target.value; setFormData({...formData, participants: n});
+                            }} />
+                          </div>
+                          <div>
+                            <input required type="number" placeholder="年齡" className="w-full px-4 py-3 text-sm bg-white border border-[#eedee5] rounded-xl outline-none focus:border-[#95819e] transition-all" value={p.age} onChange={e => {
+                              const n = [...formData.participants]; n[i].age = e.target.value; setFormData({...formData, participants: n});
+                            }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-1.5 h-6 bg-[#95819e] rounded-full"></div>
+                      <h3 className="font-bold text-[#4c4452] text-lg">匯款資料</h3>
+                    </div>
+                    <div className="bg-[#4c4452] rounded-[1.5rem] p-6 text-white shadow-md space-y-4">
+                      <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                        <span className="text-xs font-bold opacity-60">銀行名稱</span>
+                        <span className="font-bold">{BANK_INFO.bankName}</span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                        <span className="text-xs font-bold opacity-60">帳號</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-black tracking-widest">{BANK_INFO.accountNumber}</span>
+                          <button type="button" onClick={() => { copyToClipboard(BANK_INFO.accountNumber); alert("帳號已複製"); }} className="p-2 bg-white/10 rounded-lg hover:bg-white/20"><Copy className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold opacity-60">戶名</span>
+                        <span className="font-bold">{BANK_INFO.accountHolder}</span>
+                      </div>
+                    </div>
+                  </section>
+                  <section>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-1.5 h-6 bg-[#7e9994] rounded-full"></div>
+                      <h3 className="font-bold text-[#4c4452] text-lg">匯款對帳</h3>
+                    </div>
+                    <div className="p-6 bg-[#faf7fc] border-2 border-[#eedee5] border-dashed rounded-[1.5rem] space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-[#a59eb0] ml-2 uppercase">匯款帳號後五碼 (選填)</label>
+                        <input type="text" maxLength="5" className="w-full px-5 py-4 bg-white border border-[#eedee5] rounded-2xl outline-none focus:border-[#95819e] transition-all" placeholder="已匯款請填寫後五碼" value={formData.bankLastFive} onChange={e => setFormData({...formData, bankLastFive: e.target.value.replace(/\D/g,'')})} />
+                      </div>
+                    </div>
+                  </section>
+                  <div className="mt-6 pt-10">
+                    <div className="bg-[#7e9994] rounded-[2.5rem] p-10 text-white shadow-xl shadow-[#7e9994]/20">
+                        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-8 border-b border-white/10 pb-8">
+                          <div>
+                            <div className="flex items-center gap-2 text-[#f1edf3] mb-3">
+                              <Info className="w-4 h-4" />
+                              <span className="text-xs font-bold tracking-widest uppercase">AVERAGE PER STUDENT</span>
+                            </div>
+                            <div className="flex items-baseline gap-3">
+                              <span className="text-5xl font-light tracking-tighter text-white">${avgPrice.toLocaleString()}</span>
+                              <span className="text-[#f1edf3] text-sm font-medium tracking-wide">/ 每位</span>
+                            </div>
+                          </div>
+                          <div className="text-left sm:text-right">
+                             <span className="inline-block px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-white text-[10px] font-bold">
+                               夏令營階段
+                             </span>
+                          </div>
+                        </div>
+                        <div className="pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+                          <div className="flex flex-col">
+                            <p className="text-[11px] text-[#f1edf3] font-bold uppercase tracking-widest mb-1">TOTAL PAYMENT</p>
+                            <h2 className="text-4xl font-black text-white tracking-tight">${totalPrice.toLocaleString()}</h2>
+                          </div>
+                          <button type="submit" disabled={isSubmitting || formData.weeks.length === 0} className={`w-full sm:w-auto px-10 py-5 rounded-[1.8rem] font-bold text-lg transition-all flex items-center justify-center gap-3 ${isSubmitting || formData.weeks.length === 0 ? 'bg-white/10 text-white/40 cursor-not-allowed' : 'bg-white text-[#7e9994] hover:shadow-xl active:scale-[0.98]'}`}>
+                            {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : '確認報名'}
+                          </button>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
+          )
+        ) : (
+          <div className="space-y-8 animate-in slide-in-from-bottom-5 duration-500">
+            <header className="flex justify-between items-end px-2">
+              <div>
+                <h2 className="text-3xl font-light text-[#4c4452] tracking-tight">報名數據概覽</h2>
+                <p className="text-sm text-[#a59eb0] mt-1">管理員專屬後台</p>
+              </div>
+              <button onClick={() => {setIsAdminAuthenticated(false); setView('form');}} className="text-xs font-bold text-[#95819e] hover:underline underline-offset-4">登出後台</button>
+            </header>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-[#eedee5]">
+                <div className="flex items-center gap-5">
+                  <div className="w-14 h-14 bg-[#f1edf3] text-[#7e9994] rounded-2xl flex items-center justify-center"><Users className="w-7 h-7" /></div>
+                  <div>
+                    <p className="text-xs font-bold text-[#a59eb0] uppercase">學員總人數</p>
+                    <p className="text-3xl font-bold text-[#4c4452] mt-1">{registrations.reduce((acc, curr) => acc + (curr.participants?.length || 0), 0)} 位</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-[#eedee5]">
+                <div className="flex items-center gap-5">
+                  <div className="w-14 h-14 bg-[#faf7fc] text-[#95819e] rounded-2xl flex items-center justify-center"><TrendingUp className="w-7 h-7" /></div>
+                  <div>
+                    <p className="text-xs font-bold text-[#a59eb0] uppercase">預計總金額</p>
+                    <p className="text-3xl font-bold text-[#4c4452] mt-1">${registrations.reduce((acc, curr) => acc + (curr.totalPrice || 0), 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {registrations.length === 0 ? (
+                <div className="text-center py-20 bg-white rounded-[2rem] border border-dashed border-[#eedee5] text-[#a59eb0]">目前尚無報名資料</div>
+              ) : (
+                registrations.map((reg) => <RegistrationCard key={reg.id} reg={reg} />)
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 管理員登入 Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <button onClick={() => setShowLoginModal(false)} className="absolute top-6 right-6 p-2 hover:bg-[#f1edf3] rounded-full transition-all text-[#a59eb0]"><X className="w-5 h-5" /></button>
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-[#f1edf3] text-[#7e9994] rounded-full flex items-center justify-center mx-auto mb-4"><Lock className="w-8 h-8" /></div>
+              <h3 className="text-xl font-bold text-[#4c4452]">管理員驗證</h3>
+              <p className="text-sm text-[#a59eb0] mt-1">請輸入後台進入密碼</p>
+            </div>
+            <form onSubmit={verifyPassword} className="space-y-4">
+              <input autoFocus type="password" placeholder="請輸入密碼" className="w-full px-6 py-4 bg-[#faf8fb] border border-[#eedee5] rounded-2xl outline-none text-center text-2xl tracking-[0.5em] focus:ring-2 focus:ring-[#7e9994]" value={passInput} onChange={e => setPassInput(e.target.value)} />
+              <button type="submit" className="w-full py-4 bg-[#7e9994] text-white rounded-2xl font-bold hover:shadow-lg transition-all active:scale-[0.98]">確認解鎖</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RegistrationCard({ reg }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const date = reg.submittedAt?.toDate ? reg.submittedAt.toDate().toLocaleString() : '處理中...';
+  const weekLabels = CAMP_WEEKS.filter(w => reg.weeks?.includes(w.id)).map(w => w.label.split(' ')[0]).join('、');
+  return (
+    <div className="bg-white rounded-[1.8rem] shadow-sm border border-[#eedee5] overflow-hidden hover:border-[#eedee5] transition-all">
+      <div className="p-6 flex items-center justify-between cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-1.5">
+            <span className="font-bold text-[#4c4452] text-lg">{reg.parentName}</span>
+            {reg.bankLastFive && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full font-bold">後五碼: {reg.bankLastFive}</span>}
+            <span className="text-[10px] bg-[#f1edf3] text-[#95819e] px-3 py-1 rounded-full font-bold">{reg.participants?.length}人</span>
+          </div>
+          <p className="text-[12px] text-[#a59eb0] font-medium">{weekLabels} · {date.split(' ')[0]}</p>
+        </div>
+        <div className="text-right flex items-center gap-6">
+          <p className="text-xl font-bold text-[#95819e] tracking-tight">${reg.totalPrice?.toLocaleString()}</p>
+          <div className={`p-2 rounded-full transition-all ${isOpen ? 'bg-[#95819e] text-white rotate-180' : 'bg-[#f1edf3] text-[#a59eb0]'}`}><ChevronDown className="w-4 h-4" /></div>
+        </div>
+      </div>
+      {isOpen && (
+        <div className="px-6 pb-6 border-t border-[#f1edf3] bg-[#faf8fb]/50 pt-6 space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <p className="text-[10px] font-black text-[#a59eb0] uppercase tracking-widest ml-1">學員名單</p>
+              {reg.participants?.map((p, i) => (
+                <div key={i} className="text-sm bg-white p-3 rounded-xl border border-[#eedee5] flex justify-between shadow-sm">
+                  <span className="text-[#4c4452] font-bold">{p.name}</span>
+                  <span className="text-[#a59eb0]">{p.age} 歲</span>
+                </div>
+              ))}
+            </div>
+            <div className="bg-[#4c4452] rounded-2xl p-5 text-white">
+              <p className="text-[10px] font-bold opacity-40 uppercase mb-3">報名細節</p>
+              <p className="text-sm font-bold mb-1">電話：{reg.phone}</p>
+              <p className="text-sm font-bold mb-1">週數：{weekLabels}</p>
+              <p className="text-sm font-bold mb-2">後五碼：{reg.bankLastFive || '未填寫'}</p>
+              <div className="border-t border-white/10 pt-2 text-[11px] opacity-60">
+                報名總額：${reg.totalPrice?.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+```
