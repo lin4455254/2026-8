@@ -1,0 +1,328 @@
+```html
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 韻律體操夏令營 - 線上報名預約</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f7f5f5; -webkit-tap-highlight-color: transparent; }
+        .week-item.active { border-color: #b8a6a6 !important; background-color: #fdfafb !important; }
+        .week-item.active span { color: #5e5e5e !important; }
+        .week-item.active .check { background-color: #b8a6a6 !important; border-color: #b8a6a6 !important; }
+        .week-item.active .check::after { content: '✓'; color: white; font-size: 14px; display: flex; justify-content: center; align-items: center; font-weight: bold; }
+        
+        @keyframes bounce-subtle {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        .btn-animate { animation: bounce-subtle 2s infinite; }
+        
+        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="max-w-2xl mx-auto py-8 px-4">
+        <!-- 第一頁：報名表單區塊 -->
+        <div id="form-container" class="space-y-8">
+            <div class="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-[#e2d5d5]">
+                <div class="bg-[#b8a6a6] p-10 text-white text-center sm:text-left">
+                    <h1 class="text-3xl font-bold mb-3 tracking-tight">2026 韻律體操夏令營</h1>
+                    <div class="flex flex-wrap justify-center sm:justify-start items-center gap-5 text-sm opacity-90">
+                        <span>📅 8月盛大開課</span>
+                        <span>📍 竹東鎮星都匯C區</span>
+                    </div>
+                </div>
+                
+                <form id="enrollment-form" class="p-8 space-y-10">
+                    <!-- 週數選擇 -->
+                    <section>
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-1.5 h-6 bg-[#94a7ae] rounded-full"></div>
+                            <h3 class="font-bold text-[#5e5e5e] text-lg">選擇上課週數</h3>
+                        </div>
+                        <div id="weeks-list" class="grid grid-cols-1 gap-3"></div>
+                    </section>
+
+                    <!-- 聯絡資訊 -->
+                    <section>
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-1.5 h-6 bg-[#94a7ae] rounded-full"></div>
+                            <h3 class="font-bold text-[#5e5e5e] text-lg">聯絡人資訊</h3>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold text-[#b4b4b4] ml-2">家長姓名</label>
+                                <input required type="text" id="parentName" class="w-full px-5 py-4 bg-[#fcfafa] border border-[#f0ecec] rounded-2xl outline-none focus:border-[#b8a6a6]" placeholder="請輸入姓名">
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold text-[#b4b4b4] ml-2">聯絡電話</label>
+                                <input required type="tel" id="phone" class="w-full px-5 py-4 bg-[#fcfafa] border border-[#f0ecec] rounded-2xl outline-none focus:border-[#b8a6a6]" placeholder="09xx-xxx-xxx">
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 學員 -->
+                    <section>
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-3">
+                                <div class="w-1.5 h-6 bg-[#94a7ae] rounded-full"></div>
+                                <h3 class="font-bold text-[#5e5e5e] text-lg">報名學員</h3>
+                            </div>
+                            <div class="flex bg-[#f4f1f1] p-1.5 rounded-2xl" id="count-selector">
+                                <button type="button" data-val="1" class="count-btn px-5 py-2 rounded-xl text-xs font-bold transition-all bg-white text-[#b8a6a6] shadow-sm">1 位</button>
+                                <button type="button" data-val="2" class="count-btn px-5 py-2 rounded-xl text-xs font-bold transition-all text-[#b4b4b4]">2 位</button>
+                                <button type="button" data-val="3" class="count-btn px-5 py-2 rounded-xl text-xs font-bold transition-all text-[#b4b4b4]">3 位</button>
+                            </div>
+                        </div>
+                        <div id="participants-container" class="space-y-4"></div>
+                    </section>
+
+                    <!-- 匯款資訊卡片 -->
+                    <section>
+                        <div class="bg-[#5e5e5e] rounded-[1.5rem] p-6 text-white shadow-md space-y-4">
+                            <div class="flex justify-between items-center border-b border-white/10 pb-3 text-sm">
+                                <span class="opacity-60">銀行</span>
+                                <span class="font-bold">812 台新銀行</span>
+                            </div>
+                            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                                <span class="opacity-60 text-sm">帳號</span>
+                                <div class="flex items-center gap-3">
+                                    <span id="account-num" class="font-black tracking-widest">20441000332556</span>
+                                    <button type="button" id="copy-btn" class="text-lg bg-white/10 p-1 rounded hover:bg-white/20 transition-colors">📋</button>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm">
+                                <span class="opacity-60">戶名</span>
+                                <span class="font-bold">詹舒憶</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 後五碼 -->
+                    <section>
+                        <div class="p-6 bg-[#fdfafb] border-2 border-[#e2d5d5] border-dashed rounded-[1.5rem]">
+                            <label class="text-xs font-bold text-[#b4b4b4] mb-2 block ml-2">匯款帳號後五碼 (選填)</label>
+                            <input type="text" id="bankLastFive" maxlength="5" class="w-full px-5 py-4 bg-white border border-[#e2d5d5] rounded-2xl outline-none focus:border-[#b8a6a6]" placeholder="請填寫">
+                        </div>
+                    </section>
+
+                    <!-- 底部結算按鈕 -->
+                    <div class="bg-[#94a7ae] rounded-[2.5rem] p-10 text-white shadow-xl">
+                        <div class="flex justify-between items-center border-b border-white/20 pb-4 mb-6">
+                            <span class="text-sm font-bold opacity-80 uppercase tracking-widest">Pricing</span>
+                            <span class="text-xl font-bold" id="individual-display">$0</span>
+                        </div>
+                        <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div class="flex flex-col">
+                                <span id="participant-summary" class="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-bold self-start mb-1">共 1 位</span>
+                                <h2 class="text-4xl font-black" id="total-display">$0</h2>
+                            </div>
+                            <button type="submit" id="submit-btn" class="w-full sm:w-auto px-10 py-5 rounded-[1.8rem] font-bold text-lg bg-white text-[#94a7ae] active:scale-95 transition-all shadow-lg hover:bg-gray-50">
+                                完成報名
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 第二頁：報名完成顯示畫面 (Success UI) -->
+        <div id="success-container" class="hidden fade-in space-y-6">
+            <div class="bg-white p-10 rounded-[2.5rem] shadow-sm text-center border border-[#e2d5d5]">
+                <div class="inline-block p-6 bg-green-50 rounded-full mb-6">
+                    <span class="text-6xl">✨</span>
+                </div>
+                <h2 class="text-3xl font-black text-[#5e5e5e] mb-2">預約資料已登記！</h2>
+                <p class="text-sm text-gray-400 leading-relaxed px-4">
+                    感謝您的預約，資料已成功送出。<br>請點擊下方按鈕通知官方 LINE 完成後續確認。
+                </p>
+                
+                <!-- 報名結果摘要 -->
+                <div class="mt-10 p-6 bg-[#fdfafb] rounded-[2rem] border border-[#e2d5d5]">
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">應匯款總額</p>
+                    <p class="text-5xl font-black text-[#b8a6a6]" id="success-total">NT$ 0</p>
+                    <div class="mt-4 pt-4 border-t border-gray-100 flex justify-center gap-4 text-[10px] font-bold text-gray-400">
+                        <span>台新 812</span>
+                        <span>戶名：詹舒憶</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="space-y-4">
+                <!-- 通知官方 LINE 按鈕 -->
+                <a id="line-link-btn" href="#" target="_blank" class="flex items-center justify-center gap-3 w-full py-6 bg-[#06C755] text-white rounded-[2rem] font-bold shadow-lg text-xl btn-animate active:scale-95 transition-transform">
+                    <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.121.303.079.778.039 1.085l-.171 1.047c-.052.312-.252 1.226 1.088.668 1.341-.558 7.237-4.263 9.87-7.296 1.83-2.107 2.081-3.998 2.081-5.704z"/></svg>
+                    通知官方 LINE
+                </a>
+                
+                <p class="text-center text-xs text-gray-400 px-8">點擊後將開啟 LINE 並自動帶入報名資訊，請直接點擊傳送。</p>
+                
+                <div class="pt-6 flex justify-center">
+                    <button onclick="location.reload()" class="px-6 py-2 text-[#b4b4b4] font-bold text-xs border border-[#e2d5d5] rounded-full hover:bg-white transition-colors">
+                        返回重新報名
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CAMP_WEEKS = [
+            { id: 'week1', label: '第一週 (8/03 - 8/07)' },
+            { id: 'week2', label: '第二週 (8/10 - 8/14)' },
+            { id: 'week3', label: '第三週 (8/17 - 8/21)' },
+        ];
+        const PRICING = { 0: 0, 1: 7000, 2: 12000, 3: 15000 };
+
+        let state = {
+            weeks: [],
+            participants: [{ name: '', age: '' }],
+            total: 0,
+            individual: 0
+        };
+
+        function initWeeks() {
+            const list = document.getElementById('weeks-list');
+            list.innerHTML = '';
+            CAMP_WEEKS.forEach(w => {
+                const div = document.createElement('div');
+                div.id = `item-${w.id}`;
+                div.className = "week-item flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer border-[#f0ecec] bg-[#fcfafa] transition-all";
+                div.innerHTML = `<span class="font-bold text-[#b4b4b4]">${w.label}</span><div class="check w-6 h-6 rounded-lg border-2 border-[#d1d1d1] bg-white"></div>`;
+                div.addEventListener('click', () => toggleWeek(w.id));
+                list.appendChild(div);
+            });
+        }
+
+        function toggleWeek(id) {
+            const idx = state.weeks.indexOf(id);
+            if (idx > -1) state.weeks.splice(idx, 1);
+            else state.weeks.push(id);
+            const el = document.getElementById(`item-${id}`);
+            if (state.weeks.includes(id)) el.classList.add('active');
+            else el.classList.remove('active');
+            updateTotal();
+        }
+
+        function changeCount(n) {
+            document.querySelectorAll('.count-btn').forEach(b => {
+                b.classList.remove('bg-white', 'text-[#b8a6a6]', 'shadow-sm');
+                b.classList.add('text-[#b4b4b4]');
+                if (parseInt(b.dataset.val) === n) {
+                    b.classList.add('bg-white', 'text-[#b8a6a6]', 'shadow-sm');
+                    b.classList.remove('text-[#b4b4b4]');
+                }
+            });
+            const old = [...state.participants];
+            state.participants = Array.from({length: n}, (_, i) => old[i] || {name: '', age: ''});
+            renderParticipants();
+            updateTotal();
+        }
+
+        function renderParticipants() {
+            const container = document.getElementById('participants-container');
+            container.innerHTML = '';
+            state.participants.forEach((p, i) => {
+                const div = document.createElement('div');
+                div.className = "grid grid-cols-3 gap-4 p-5 bg-[#fcfafa] rounded-[1.5rem] border border-[#f0ecec]";
+                div.innerHTML = `
+                    <input required placeholder="學員姓名" class="col-span-2 px-4 py-3 text-sm rounded-xl border border-[#e2d5d5] outline-none focus:border-[#b8a6a6] bg-white" value="${p.name}">
+                    <input required type="number" placeholder="年齡" class="px-4 py-3 text-sm rounded-xl border border-[#e2d5d5] outline-none focus:border-[#b8a6a6] bg-white" value="${p.age}">
+                `;
+                const inputs = div.querySelectorAll('input');
+                inputs[0].addEventListener('input', (e) => { state.participants[i].name = e.target.value; });
+                inputs[1].addEventListener('input', (e) => { state.participants[i].age = e.target.value; });
+                container.appendChild(div);
+            });
+        }
+
+        function updateTotal() {
+            state.individual = PRICING[state.weeks.length] || 0;
+            let base = state.individual * state.participants.length;
+            let note = `共 ${state.participants.length} 位`;
+            if (state.participants.length === 2) { base *= 0.95; note += " (二人95折)"; }
+            else if (state.participants.length >= 3) { base *= 0.9; note += " (三人9折)"; }
+            state.total = Math.round(base);
+            document.getElementById('individual-display').innerText = `$${state.individual.toLocaleString()}`;
+            document.getElementById('total-display').innerText = `$${state.total.toLocaleString()}`;
+            document.getElementById('participant-summary').innerText = note;
+        }
+
+        document.getElementById('copy-btn').addEventListener('click', () => {
+            const text = document.getElementById('account-num').innerText;
+            const el = document.createElement('textarea');
+            el.value = text; document.body.appendChild(el);
+            el.select(); document.execCommand('copy');
+            document.body.removeChild(el);
+            alert("匯款帳號已複製到剪貼簿");
+        });
+
+        document.querySelectorAll('.count-btn').forEach(btn => {
+            btn.addEventListener('click', () => changeCount(parseInt(btn.dataset.val)));
+        });
+
+        document.getElementById('enrollment-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            if (state.weeks.length === 0) return alert("請至少選擇一個週數");
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "提交中...";
+
+            const parentName = document.getElementById('parentName').value;
+            const phone = document.getElementById('phone').value;
+            const bankLastFive = document.getElementById('bankLastFive').value;
+
+            // 組合 Line 訊息
+            const weekStr = CAMP_WEEKS.filter(w => state.weeks.includes(w.id)).map(w => w.label.split(' ')[0]).join('、');
+            const pStr = state.participants.map((p, idx) => `${idx + 1}. ${p.name} (${p.age}歲)`).join('\n');
+            const discountLabel = state.participants.length === 3 ? " (三人9折)" : (state.participants.length === 2 ? " (二人95折)" : "");
+            
+            const msg = `您好！我已完成網頁報名預約 ✨\n\n👤 家長：${parentName}\n📞 電話：${phone}\n📅 報名週數：${weekStr}\n👧 學員名單：\n${pStr}\n💰 應繳總額：NT$ ${state.total.toLocaleString()}${discountLabel}\n🔢 帳號後五碼：${bankLastFive || '待匯款後提供'}\n\n請協助確認名額，謝謝！`;
+            
+            const lineUrl = `https://line.me/R/oaMessage/@904sjunh/?${encodeURIComponent(msg)}`;
+
+            // 1. 切換到第二頁顯示
+            document.getElementById('form-container').classList.add('hidden');
+            document.getElementById('success-container').classList.remove('hidden');
+            document.getElementById('success-total').innerText = `NT$ ${state.total.toLocaleString()}`;
+            document.getElementById('line-link-btn').href = lineUrl;
+            window.scrollTo(0, 0);
+
+            // 2. 背景存檔 (Firebase)
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    const conf = JSON.parse(__firebase_config);
+                    if (!firebase.apps.length) firebase.initializeApp(conf);
+                    const db = firebase.firestore();
+                    await firebase.auth().signInAnonymously();
+                    await db.collection('artifacts').doc('rhythmic-gymnastics-2026').collection('public').doc('data').collection('registrations').add({
+                        parentName, phone, bankLastFive, weeks: state.weeks, participants: state.participants, 
+                        totalPrice: state.total, submittedAt: new Date().toISOString()
+                    });
+                }
+            } catch (err) {
+                console.error("Firebase update failed", err);
+            }
+        });
+
+        window.onload = () => {
+            initWeeks();
+            renderParticipants();
+            updateTotal();
+        };
+    </script>
+</body>
+</html>
+
+```
